@@ -2,15 +2,20 @@ package com.nurulquran.audio.activity;
 
 import static android.content.Intent.ACTION_VIEW;
 
+import android.Manifest;
 import android.app.AlertDialog;
 import android.app.NotificationManager;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.ServiceConnection;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -21,6 +26,8 @@ import android.view.View.OnClickListener;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
 import androidx.fragment.app.FragmentManager;
@@ -49,7 +56,6 @@ import com.nurulquran.audio.slidingmenu.SlidingMenu;
 import com.nurulquran.audio.util.Logger;
 import com.nurulquran.audio.util.NetworkUtil;
 import com.nurulquran.audio.widget.AutoBgButton;
-//import com.splunk.mint.Mint;
 
 import java.io.File;
 import java.io.IOException;
@@ -94,7 +100,7 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
     private FragmentManager fm;
     private Fragment[] arrayFragments;
     public SlidingMenu menu;
-    public static AutoBgButton btnPlayFooter;
+    private AutoBgButton btnPlayFooter; // Changed from static to private instance field
     private AutoBgButton btnPreviousFooter, btnNextFooter;
     private View layoutPlayerFooter;
     private TextView lblSongNameFooter, lblArtistFooter;
@@ -108,7 +114,6 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
     public static int toMusicPlayer;
     public static boolean isTapOnFooter;
     public Playlist currentPlaylist;
-
 
     public List<Song> listNominations;
     public List<Song> listTopWeek;
@@ -125,7 +130,44 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
 
     public static boolean isPlaylist = false;
 
-    private ServiceConnection mConnection = new ServiceConnection() {
+    // ---- Notification permission (Android 13+)
+    private static final int REQ_POST_NOTIF = 2001;
+
+    private void askPostNotificationsIfNeeded() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                        this,
+                        new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                        REQ_POST_NOTIF
+                );
+            }
+        }
+    }
+
+    // ---- Listen to play/pause changes coming from MusicService
+    private final BroadcastReceiver playStateReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (MusicService.ACTION_PLAYSTATE_CHANGED.equals(intent.getAction())) {
+                boolean isPlaying = intent.getBooleanExtra(MusicService.EXTRA_IS_PLAYING, false);
+                updateFooterPlayState(isPlaying);
+            }
+        }
+    };
+
+    private void updateFooterPlayState(boolean isPlaying) {
+        mIsPause = !isPlaying;
+        if (btnPlayFooter != null) {
+            btnPlayFooter.setBackgroundResource(
+                    isPlaying ? R.drawable.bg_btn_pause_small : R.drawable.bg_btn_play_small
+            );
+        }
+    }
+    // ------------------------------------------------------------
+
+    private final ServiceConnection mConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
             ServiceBinder binder = (ServiceBinder) service;
@@ -137,22 +179,21 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
             mService.setListener(new PlayerListener() {
                 @Override
                 public void onSeekChanged(int maxProgress, String lengthTime, String currentTime, int progress) {
-
+                    // no-op here
                 }
 
                 @Override
                 public void onChangeSong(int indexSong) {
-                    lblSongNameFooter.setText(GlobalValue.getCurrentSong()
-                            .getName());
-                    if (GlobalValue.getCurrentSong()
-                            .getDescription() != null) {
-                        lblArtistFooter.setText(Html.fromHtml(GlobalValue.getCurrentSong()
-                                .getDescription()));
+                    lblSongNameFooter.setText(GlobalValue.getCurrentSong().getName());
+                    if (GlobalValue.getCurrentSong().getDescription() != null) {
+                        lblArtistFooter.setText(Html.fromHtml(GlobalValue.getCurrentSong().getDescription()));
                     } else {
                         lblArtistFooter.setText("");
                     }
-
-                    setButtonPlay();
+                    // Update button based on actual service state via broadcast, or a direct check if needed after song change
+                    if (mService != null) {
+                        updateFooterPlayState(!mService.isPause());
+                    }
                 }
 
                 @Override
@@ -163,26 +204,29 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
                 }
             });
             GlobalValue.currentMusicService = mService;
+
+            // Sync footer button immediately when we connect
+            updateFooterPlayState(mService != null && !mService.isPause());
         }
 
         @Override
         public void onServiceDisconnected(ComponentName name) {
+            // no-op
         }
     };
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-//cactch error
-//        Mint.initAndStartSession(MainActivity.this, "124b3602");
-//        Mint.setApplicationEnvironment(Mint.appEnvironmentStaging);
-/////////////////////////////////////////////////////////////////////
 
         NetworkUtil.enableStrictMode();
         initList();
         databaseUtility = new DatabaseUtility(this);
         setContentView(R.layout.activity_main);
-//        ControllerRequest.getInstance().trackEvent("Install", "Install App", "");
+
+        // Ask notification permission on Android 13+
+        askPostNotificationsIfNeeded();
+
         initService();
         initMenu();
         initUI();
@@ -192,23 +236,20 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
         setSelect(GlobalValue.currentMenu);
         toMusicPlayer = MainActivity.FROM_OTHER;
         ListSongsFragment.isShowing = false;
+
         if (savedInstanceState != null) {
             onRestoreInstanceState(savedInstanceState);
         }
     }
 
     public void unbindservice() {
-        new Handler().postDelayed(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    unbindService(mConnection);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
+        new Handler().postDelayed(() -> {
+            try {
+                unbindService(mConnection);
+            } catch (Exception e) {
+                e.printStackTrace();
             }
         }, 1000);
-
     }
 
     @Override
@@ -221,43 +262,48 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
             cancelNotification();
         }
         super.onDestroy();
-
     }
 
     @Override
     public void onPause() {
         super.onPause();
+        try { unregisterReceiver(playStateReceiver); } catch (Exception ignored) {}
     }
 
     @Override
     protected void onStop() {
         super.onStop();
-//        try {
-//            unbindService(mConnection);
-//        } catch (Exception e) {
-//            e.printStackTrace();
-//            cancelNotification();
-//        }
+        // Intentionally keeping the service bound
     }
 
     @Override
     public void onResume() {
         super.onResume();
+        // Listen for play/pause updates from the service
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            registerReceiver(playStateReceiver, new IntentFilter(MusicService.ACTION_PLAYSTATE_CHANGED), Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(playStateReceiver, new IntentFilter(MusicService.ACTION_PLAYSTATE_CHANGED));
+        }
+
         if (mService != null) {
             if (GlobalValue.currentMenu != RADIO) {
                 setVisibilityFooter();
             }
-            setButtonPlay();
+            // Sync button state on resume
+            updateFooterPlayState(!mService.isPause());
+        } else {
+           // If service is not yet connected, hide footer or set to default play icon until connection and broadcast update it
+            if (layoutPlayerFooter != null) layoutPlayerFooter.setVisibility(View.GONE); // Or set to default play icon
         }
         openPlayerFromNotification(getIntent());
-        bindService(intentService, mConnection, Context.BIND_AUTO_CREATE);
+        bindService(intentService, mConnection, Context.BIND_AUTO_CREATE); // Ensure service is bound
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         openPlayerFromNotification(intent);
-
     }
 
     private void openPlayerFromNotification(Intent intent) {
@@ -280,26 +326,22 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
                     }
                     intent.putExtra(Args.NOTIFICATION, false);
                 }
-
             }
-
         }
-
     }
 
     @Override
     protected void onSaveInstanceState(Bundle outState) {
-        // Static variable do not persist after long time of idle -> Store those
         super.onSaveInstanceState(outState);
         try {
             outState.putInt("currentSongPlay", GlobalValue.currentSongPlay);
             outState.putInt("currentMenu", GlobalValue.currentMenu);
             outState.putInt("currentCategoryId", GlobalValue.currentCategoryId);
             outState.putInt("currentParentCategoryId", GlobalValue.currentParentCategoryId);
-            outState.putString("currentCategoryName",
-                    GlobalValue.currentCategoryName);
+            outState.putString("currentCategoryName", GlobalValue.currentCategoryName);
             outState.putInt("currentAlbumId", GlobalValue.currentAlbumId);
             outState.putString("currentAlbumName", GlobalValue.currentAlbumName);
+            cancelNotification();
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -309,22 +351,14 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
     protected void onRestoreInstanceState(Bundle savedInstanceState) {
         if (savedInstanceState != null) {
             try {
-
                 GlobalValue.listSongPlay = databaseUtility.getAllFavorite();
-                GlobalValue.currentSongPlay = (int) savedInstanceState
-                        .getInt("currentSongPlay");
-                GlobalValue.currentMenu = (int) savedInstanceState
-                        .getInt("currentMenu");
-                GlobalValue.currentCategoryId = (int) savedInstanceState
-                        .getInt("currentCategoryId");
-                GlobalValue.currentParentCategoryId = (int) savedInstanceState
-                        .getInt("currentParentCategoryId");
-                GlobalValue.currentCategoryName = (String) savedInstanceState
-                        .getString("currentCategoryName");
-                GlobalValue.currentAlbumId = (int) savedInstanceState
-                        .getInt("currentAlbumId");
-                GlobalValue.currentAlbumName = (String) savedInstanceState
-                        .getString("currentAlbumName");
+                GlobalValue.currentSongPlay = savedInstanceState.getInt("currentSongPlay");
+                GlobalValue.currentMenu = savedInstanceState.getInt("currentMenu");
+                GlobalValue.currentCategoryId = savedInstanceState.getInt("currentCategoryId");
+                GlobalValue.currentParentCategoryId = savedInstanceState.getInt("currentParentCategoryId");
+                GlobalValue.currentCategoryName = savedInstanceState.getString("currentCategoryName");
+                GlobalValue.currentAlbumId = savedInstanceState.getInt("currentAlbumId");
+                GlobalValue.currentAlbumName = savedInstanceState.getString("currentAlbumName");
                 cancelNotification();
             } catch (Exception e) {
                 e.printStackTrace();
@@ -334,64 +368,65 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
 
     public void setVisibilityFooter() {
         try {
-            if (mService.isPause() || mService.isPlay()) {
+            if (mService != null && (mService.isPause() || mService.isPlay())) { // Added null check for mService
                 layoutPlayerFooter.setVisibility(View.VISIBLE);
-                lblSongNameFooter.setText(GlobalValue.getCurrentSong()
-                        .getName());
-                if (GlobalValue.getCurrentSong()
-                        .getDescription() != null) {
-                    lblArtistFooter.setText(Html.fromHtml(GlobalValue.getCurrentSong()
-                            .getDescription()));
+                lblSongNameFooter.setText(GlobalValue.getCurrentSong().getName());
+                if (GlobalValue.getCurrentSong().getDescription() != null) {
+                    lblArtistFooter.setText(Html.fromHtml(GlobalValue.getCurrentSong().getDescription()));
                 } else {
                     lblArtistFooter.setText("");
                 }
-                setButtonPlay();
+                updateFooterPlayState(!mService.isPause()); // Update based on actual service state
             } else {
                 layoutPlayerFooter.setVisibility(View.GONE);
             }
         } catch (Exception e) {
-            layoutPlayerFooter.setVisibility(View.GONE);
+            if (layoutPlayerFooter != null) layoutPlayerFooter.setVisibility(View.GONE);
         }
     }
 
     public void hideMediaFooter() {
-        layoutPlayerFooter.setVisibility(View.GONE);
+        if (layoutPlayerFooter != null) layoutPlayerFooter.setVisibility(View.GONE);
     }
 
     public void showMediaFooter() {
-        if (mService.isPlay() || mService.isPause()) {
-            layoutPlayerFooter.setVisibility(View.VISIBLE);
+        if (mService != null && (mService.isPlay() || mService.isPause())) { // Added null check
+             if (layoutPlayerFooter != null) layoutPlayerFooter.setVisibility(View.VISIBLE);
         }
     }
 
     private void initService() {
         intentService = new Intent(this, MusicService.class);
-        startService(intentService);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ContextCompat.startForegroundService(this, intentService);
+        } else {
+            startService(intentService);
+        }
         bindService(intentService, mConnection, Context.BIND_AUTO_CREATE);
     }
 
     private void initUI() {
-        btnPreviousFooter = (AutoBgButton) findViewById(R.id.btnPreviousFooter);
-        btnPlayFooter = (AutoBgButton) findViewById(R.id.btnPlayFooter);
-        btnNextFooter = (AutoBgButton) findViewById(R.id.btnNextFooter);
-        layoutPlayerFooter = (LinearLayout) findViewById(R.id.layoutPlayerFooterMain);
-        lblSongNameFooter = (TextView) findViewById(R.id.lblSongNameFooter);
-        lblArtistFooter = (TextView) findViewById(R.id.lblArtistFooter);
-        lblTopChart = (TextView) menu.findViewById(R.id.lblTopChart);
-        lblAllSongs = (TextView) menu.findViewById(R.id.lblAllSong);
-        lblAlbum = (TextView) menu.findViewById(R.id.lblNominations);
-        lblCategoryMusic = (TextView) menu.findViewById(R.id.lblCategoryMusic);
-        lblPlaylist = (TextView) menu.findViewById(R.id.lblPlaylist);
-        lblSearch = (TextView) menu.findViewById(R.id.lblSearch);
-        lblMultipleYourReward = (TextView) menu.findViewById(R.id.lblMultipleYourReward);
-        lblAbout = (TextView) menu.findViewById(R.id.lblAbout);
-        llMyDownLoad = (TextView) menu.findViewById(R.id.lblMyDownLoad);
-        lblExitApp = (TextView) menu.findViewById(R.id.lblExitApp);
-        llAdview = (LinearLayout) findViewById(R.id.adMod);
-        mImageBanner = (NetworkImageView) findViewById(R.id.nwImageBanner);
+        btnPreviousFooter = findViewById(R.id.btnPreviousFooter);
+        btnPlayFooter = findViewById(R.id.btnPlayFooter);
+        btnNextFooter = findViewById(R.id.btnNextFooter);
+        layoutPlayerFooter = findViewById(R.id.layoutPlayerFooterMain);
+        lblSongNameFooter = findViewById(R.id.lblSongNameFooter);
+        lblArtistFooter = findViewById(R.id.lblArtistFooter);
+        lblTopChart = menu.findViewById(R.id.lblTopChart);
+        lblAllSongs = menu.findViewById(R.id.lblAllSong);
+        lblAlbum = menu.findViewById(R.id.lblNominations);
+        lblCategoryMusic = menu.findViewById(R.id.lblCategoryMusic);
+        lblPlaylist = menu.findViewById(R.id.lblPlaylist);
+        lblSearch = menu.findViewById(R.id.lblSearch);
+        lblMultipleYourReward = menu.findViewById(R.id.lblMultipleYourReward);
+        lblAbout = menu.findViewById(R.id.lblAbout);
+        llMyDownLoad = menu.findViewById(R.id.lblMyDownLoad);
+        lblExitApp = menu.findViewById(R.id.lblExitApp);
+        llAdview = findViewById(R.id.adMod);
+        mImageBanner = findViewById(R.id.nwImageBanner);
         imageLoader = ControllerRequest.getInstance().getImageLoader();
-        lblRadio = (TextView) findViewById(R.id.lblRadio);
-        lblCleatCache = (TextView) findViewById(R.id.lblClear);
+        lblRadio = findViewById(R.id.lblRadio);
+        lblCleatCache = menu.findViewById(R.id.lblClear);
         hideBannerAd();
     }
 
@@ -414,24 +449,14 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
         lblSongNameFooter.setSelected(true);
         lblArtistFooter.setSelected(true);
         lblCleatCache.setOnClickListener(this);
-        mImageBanner.setOnClickListener(new OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                gotoPageBanner();
-            }
-        });
+        mImageBanner.setOnClickListener(v -> gotoPageBanner());
         loadImageBanner();
     }
 
-    /**
-     * load image for banner with period 30s will change image different
-     */
     private void loadImageBanner() {
         ModelManager.loadBanner(getApplicationContext(), new ModelManagerListener() {
             @Override
-            public void onError(VolleyError error) {
-
-            }
+            public void onError(VolleyError error) { }
 
             @Override
             public void onSuccess(String json) {
@@ -441,88 +466,65 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
                 mTimer.schedule(new TimerTask() {
                     @Override
                     public void run() {
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                if (pos == GlobalValue.mListBanner.size()) {
-                                    pos = 0;
-                                }
-                                if (pos < GlobalValue.mListBanner.size()) {
-                                    mImageBanner.setImageUrl(GlobalValue.mListBanner.get(pos).getImage(), imageLoader);
-                                    pos++;
-
-                                }
-
+                        runOnUiThread(() -> {
+                            if (pos == GlobalValue.mListBanner.size()) {
+                                pos = 0;
+                            }
+                            if (pos < GlobalValue.mListBanner.size()) {
+                                mImageBanner.setImageUrl(GlobalValue.mListBanner.get(pos).getImage(), imageLoader);
+                                pos++;
                             }
                         });
-
                     }
                 }, 0, PERIOD_BANNER);
-
             }
         });
-
     }
 
     private void gotoPageBanner() {
-
-        if ((pos - 1) >= 0) {
+        if ((pos - 1) >= 0 && GlobalValue.mListBanner != null && (pos -1) < GlobalValue.mListBanner.size() ) { // Added null and bounds check
             String url = GlobalValue.mListBanner.get(pos - 1).getUrl();
-            if (checkUrl(url)) {
-
-            } else {
+            if (url != null && !checkUrl(url)) { // Added null check for url
                 url = "http://" + url;
             }
-
-            Intent intent = new Intent(ACTION_VIEW, Uri.parse(url));
-            startActivity(intent);
-
+            if (url != null) { // Check url again before parsing
+               Intent intent = new Intent(ACTION_VIEW, Uri.parse(url));
+               startActivity(intent);
+            }
         }
-
-
     }
 
     protected boolean checkUrl(String url) {
-        return (url.startsWith("http://") || url.startsWith("https://"));
+        return (url != null && (url.startsWith("http://") || url.startsWith("https://"))); // Added null check
     }
 
     private void initFragment() {
         fm = getSupportFragmentManager();
         arrayFragments = new Fragment[10];
-        arrayFragments[
-                LIST_SONG_FRAGMENT] = fm
-                .findFragmentById(R.id.fragmentListSongs);
-        arrayFragments[CATEGORY_MUSIC_FRAGMENT] = fm
-                .findFragmentById(R.id.fragmentCategoryMusic);
-        arrayFragments[PLAYLIST_FRAGMENT] = fm
-                .findFragmentById(R.id.fragmentPlaylist);
-        arrayFragments[SEARCH_FRAGMENT] = fm
-                .findFragmentById(R.id.fragmentSearch);
+        arrayFragments[LIST_SONG_FRAGMENT] = fm.findFragmentById(R.id.fragmentListSongs);
+        arrayFragments[CATEGORY_MUSIC_FRAGMENT] = fm.findFragmentById(R.id.fragmentCategoryMusic);
+        arrayFragments[PLAYLIST_FRAGMENT] = fm.findFragmentById(R.id.fragmentPlaylist);
+        arrayFragments[SEARCH_FRAGMENT] = fm.findFragmentById(R.id.fragmentSearch);
         arrayFragments[RADIO_FRAGMENT] = fm.findFragmentById(R.id.frRadio);
-        arrayFragments[SETTING_FRAGMENT] = fm
-                .findFragmentById(R.id.fragmentSetting);
-        arrayFragments[MULTIPLE_YOUR_WARD_FRAGMENT] = fm
-                .findFragmentById(R.id.fragmentMultipleYourReward);
-        arrayFragments[MY_DOWNLOAD_FRAGMENT] = fm
-                .findFragmentById(R.id.fragmentMyDownLoad);
-        arrayFragments[ABOUT_FRAGMENT] = fm
-                .findFragmentById(R.id.fragmentAbout);
-        arrayFragments[ALBUM_FRAGMENT] = fm
-                .findFragmentById(R.id.fragmentAlbum);
+        arrayFragments[SETTING_FRAGMENT] = fm.findFragmentById(R.id.fragmentSetting);
+        arrayFragments[MULTIPLE_YOUR_WARD_FRAGMENT] = fm.findFragmentById(R.id.fragmentMultipleYourReward);
+        arrayFragments[MY_DOWNLOAD_FRAGMENT] = fm.findFragmentById(R.id.fragmentMyDownLoad);
+        arrayFragments[ABOUT_FRAGMENT] = fm.findFragmentById(R.id.fragmentAbout);
+        arrayFragments[ALBUM_FRAGMENT] = fm.findFragmentById(R.id.fragmentAlbum);
 
         FragmentTransaction transaction = fm.beginTransaction();
         for (Fragment fragment : arrayFragments) {
-            transaction.hide(fragment);
+            if (fragment != null) transaction.hide(fragment); // Added null check
         }
         transaction.commit();
     }
 
     private void showFragment(int fragmentIndex) {
+        if (fragmentIndex < 0 || fragmentIndex >= arrayFragments.length || arrayFragments[fragmentIndex] == null) return; // Bounds and null check
         currentFragment = fragmentIndex;
         FragmentTransaction transaction = fm.beginTransaction();
         for (Fragment fragment : arrayFragments) {
-            transaction.hide(fragment);
-
+            if (fragment != null) transaction.hide(fragment); // Added null check
         }
         transaction.show(arrayFragments[fragmentIndex]);
         transaction.commit();
@@ -530,8 +532,8 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
     }
 
     private void initList() {
-        listNominations = new ArrayList<Song>();
-        listTopWeek = new ArrayList<Song>();
+        listNominations = new ArrayList<>();
+        listTopWeek = new ArrayList<>();
     }
 
     private void initMenu() {
@@ -542,48 +544,36 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
         menu.setFadeDegree(0.35f);
         menu.attachToActivity(this, SlidingMenu.SLIDING_CONTENT);
         menu.setMenu(R.layout.layout_menu);
-        menu.setOnOpenListener(new SlidingMenu.OnOpenListener() {
-            @Override
-            public void onOpen() {
+        menu.setOnOpenListener(() -> {
+            if (arrayFragments != null && SEARCH_FRAGMENT < arrayFragments.length && arrayFragments[SEARCH_FRAGMENT] instanceof SearchFragment) { // Check before cast
                 SearchFragment searchFragment = (SearchFragment) arrayFragments[SEARCH_FRAGMENT];
                 searchFragment.hideSoft();
             }
         });
-
     }
 
     public void hideBannerAd() {
-        llAdview.setVisibility(View.GONE);
+        if (llAdview != null) llAdview.setVisibility(View.GONE);
     }
 
     public void showBannerAd() {
-        llAdview.post(new Runnable() {
-            @Override
-            public void run() {
-                llAdview.setVisibility(View.VISIBLE);
-
-            }
-        });
-
+        if (llAdview != null) llAdview.post(() -> llAdview.setVisibility(View.VISIBLE));
     }
 
     public void gotoFragment(int fragment) {
+        if (fragment < 0 || fragment >= arrayFragments.length || arrayFragments[fragment] == null || arrayFragments[currentFragment] == null) return; // Bounds and null checks
         FragmentTransaction transaction = fm.beginTransaction();
-        transaction.setCustomAnimations(R.anim.slide_in_left,
-                R.anim.slide_out_left);
+        transaction.setCustomAnimations(R.anim.slide_in_left, R.anim.slide_out_left);
         transaction.show(arrayFragments[fragment]);
-
         transaction.hide(arrayFragments[currentFragment]);
         transaction.commit();
         currentFragment = fragment;
     }
 
-
     public void backFragment(int fragment) {
+         if (fragment < 0 || fragment >= arrayFragments.length || arrayFragments[fragment] == null || arrayFragments[currentFragment] == null) return; // Bounds and null checks
         FragmentTransaction transaction = fm.beginTransaction();
-
-        transaction.setCustomAnimations(R.anim.slide_in_right,
-                R.anim.slide_out_right);
+        transaction.setCustomAnimations(R.anim.slide_in_right, R.anim.slide_out_right);
         transaction.show(arrayFragments[fragment]);
         transaction.hide(arrayFragments[currentFragment]);
         transaction.commit();
@@ -608,11 +598,9 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
                 lblExitApp.setBackgroundColor(Color.TRANSPARENT);
                 llMyDownLoad.setBackgroundColor(Color.TRANSPARENT);
                 showFragment(LIST_SONG_FRAGMENT);
-//                showBannerAd();
                 break;
 
             case LASTEST:
-//                showBannerAd();
                 lblTopChart.setBackgroundColor(Color.TRANSPARENT);
                 lblAllSongs.setBackgroundResource(R.drawable.bg_item_menu_select);
                 lblAlbum.setBackgroundColor(Color.TRANSPARENT);
@@ -625,7 +613,6 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
                 lblExitApp.setBackgroundColor(Color.TRANSPARENT);
                 llMyDownLoad.setBackgroundColor(Color.TRANSPARENT);
                 showFragment(LIST_SONG_FRAGMENT);
-
                 break;
 
             case SERIES:
@@ -642,7 +629,6 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
                 lblExitApp.setBackgroundColor(Color.TRANSPARENT);
                 llMyDownLoad.setBackgroundColor(Color.TRANSPARENT);
                 showFragment(ALBUM_FRAGMENT);
-
                 break;
 
             case CATEGORY_MUSIC:
@@ -650,8 +636,7 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
                 lblTopChart.setBackgroundColor(Color.TRANSPARENT);
                 lblAllSongs.setBackgroundColor(Color.TRANSPARENT);
                 lblAlbum.setBackgroundColor(Color.TRANSPARENT);
-                lblCategoryMusic
-                        .setBackgroundResource(R.drawable.bg_item_menu_select);
+                lblCategoryMusic.setBackgroundResource(R.drawable.bg_item_menu_select);
                 lblPlaylist.setBackgroundColor(Color.TRANSPARENT);
                 lblSearch.setBackgroundColor(Color.TRANSPARENT);
                 lblRadio.setBackgroundColor(Color.TRANSPARENT);
@@ -660,11 +645,9 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
                 lblExitApp.setBackgroundColor(Color.TRANSPARENT);
                 llMyDownLoad.setBackgroundColor(Color.TRANSPARENT);
                 showFragment(CATEGORY_MUSIC_FRAGMENT);
-
                 break;
 
             case PLAYLIST:
-//                showBannerAd();
                 lblTopChart.setBackgroundColor(Color.TRANSPARENT);
                 lblAllSongs.setBackgroundColor(Color.TRANSPARENT);
                 lblAlbum.setBackgroundColor(Color.TRANSPARENT);
@@ -677,11 +660,9 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
                 llMyDownLoad.setBackgroundColor(Color.TRANSPARENT);
                 lblExitApp.setBackgroundColor(Color.TRANSPARENT);
                 showFragment(PLAYLIST_FRAGMENT);
-
                 break;
 
             case SEARCH:
-//                showBannerAd();
                 lblTopChart.setBackgroundColor(Color.TRANSPARENT);
                 lblAllSongs.setBackgroundColor(Color.TRANSPARENT);
                 lblAlbum.setBackgroundColor(Color.TRANSPARENT);
@@ -693,10 +674,12 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
                 lblAbout.setBackgroundColor(Color.TRANSPARENT);
                 lblExitApp.setBackgroundColor(Color.TRANSPARENT);
                 llMyDownLoad.setBackgroundColor(Color.TRANSPARENT);
-                ((SearchFragment) arrayFragments[SEARCH_FRAGMENT]).keyword = "";
+                if (arrayFragments != null && SEARCH_FRAGMENT < arrayFragments.length && arrayFragments[SEARCH_FRAGMENT] instanceof SearchFragment) { // Check before cast
+                     ((SearchFragment) arrayFragments[SEARCH_FRAGMENT]).keyword = "";
+                }
                 showFragment(SEARCH_FRAGMENT);
-
                 break;
+
             case RADIO:
                 hideBannerAd();
                 lblTopChart.setBackgroundColor(Color.TRANSPARENT);
@@ -712,6 +695,7 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
                 llMyDownLoad.setBackgroundColor(Color.TRANSPARENT);
                 showFragment(RADIO_FRAGMENT);
                 break;
+
             case ABOUT:
                 hideBannerAd();
                 lblTopChart.setBackgroundColor(Color.TRANSPARENT);
@@ -726,7 +710,6 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
                 lblExitApp.setBackgroundColor(Color.TRANSPARENT);
                 llMyDownLoad.setBackgroundColor(Color.TRANSPARENT);
                 showFragment(ABOUT_FRAGMENT);
-
                 break;
 
             case MULTIPLE_YOUR_REWARD:
@@ -743,8 +726,8 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
                 llMyDownLoad.setBackgroundColor(Color.TRANSPARENT);
                 lblExitApp.setBackgroundColor(Color.TRANSPARENT);
                 showFragment(MULTIPLE_YOUR_WARD_FRAGMENT);
-
                 break;
+
             case MY_DOWNLOAD:
                 hideBannerAd();
                 lblTopChart.setBackgroundColor(Color.TRANSPARENT);
@@ -760,105 +743,77 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
                 llMyDownLoad.setBackgroundResource(R.drawable.bg_item_menu_select);
                 showFragment(MY_DOWNLOAD_FRAGMENT);
                 break;
+
             case EXIT_APP:
                 return;
         }
-        menu.showContent();
+        if (menu != null) menu.showContent(); // Added null check
     }
 
+    // This method is now primarily updated by the playStateReceiver via updateFooterPlayState
+    // It can be kept for initial setup or direct calls if state is guaranteed to be fresh.
     public void setButtonPlay() {
-        if (mService.isPause()) {
-            mIsPause = true;
-            btnPlayFooter.setBackgroundResource(R.drawable.bg_btn_play_small);
-        } else {
-            mIsPause = false;
-            btnPlayFooter.setBackgroundResource(R.drawable.bg_btn_pause_small);
+        if (mService != null) { // Null check for mService
+            updateFooterPlayState(!mService.isPause());
         }
     }
 
     public void cancelNotification() {
         NotificationManager nMgr = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        nMgr.cancel(NOTIFICATION_ID);
-        nMgr.cancelAll();
+        if (nMgr != null) {
+            nMgr.cancel(NOTIFICATION_ID);
+            nMgr.cancelAll();
+        }
     }
 
     @Override
     public void onClick(View v) {
-        switch (v.getId()) {
-            case R.id.btnPreviousFooter:
-                onClickPreviousFooter();
-
-                break;
-            case R.id.btnPlayFooter:
-                onClickPlayFooter();
-
-                break;
-            case R.id.btnNextFooter:
-                onClickNextFooter();
-
-
-                break;
-            case R.id.layoutPlayerFooterMain:
-                onClickPlayerFooter();
-
-                break;
-            case R.id.lblTopChart:
-                isPlaylist = false;
-                onClickTopChart();
-                break;
-            case R.id.lblAllSong:
-                isPlaylist = false;
-                onClickAllSongs();
-                break;
-            case R.id.lblNominations:
-                isPlaylist = false;
-                onClickAlbum();
-                break;
-            case R.id.lblCategoryMusic:
-                isPlaylist = false;
-                onClickCategoryMusic();
-                break;
-            case R.id.lblPlaylist:
-                isPlaylist = true;
-                onClickPlaylist();
-                break;
-            case R.id.lblSearch:
-                isPlaylist = false;
-                onClickSearch();
-                break;
-            case R.id.lblRadio:
-                isPlaylist = false;
-                onClickRadio();
-                break;
-            case R.id.lblMultipleYourReward:
-                isPlaylist = false;
-                onClickGoodApp();
-                break;
-            case R.id.lblMyDownLoad:
-                isPlaylist = false;
-                onClickMyDownload();
-                break;
-            case R.id.lblAbout:
-                isPlaylist = false;
-                onClickAbout();
-                break;
-            case R.id.lblExitApp:
-                isPlaylist = false;
-                onClickExitApp();
-                break;
-            case R.id.lblClear:
-                isPlaylist = false;
-                File fileOrDirectory = new File(Environment.getExternalStorageDirectory().getAbsolutePath() + "/"
-                        + getString(R.string.app_name));
-                if (fileOrDirectory.exists()) {
-                    String deleteCmd = "rm -r " + fileOrDirectory.toString();
-                    Runtime runtime = Runtime.getRuntime();
-                    try {
-                        runtime.exec(deleteCmd);
-                    } catch (IOException e) {
-                    }
-                }
-                break;
+        if (v == null) return; // Null check for the clicked view
+        int id = v.getId();
+        if (id == R.id.btnPreviousFooter) {
+            onClickPreviousFooter();
+        } else if (id == R.id.btnPlayFooter) {
+            onClickPlayFooter();
+        } else if (id == R.id.btnNextFooter) {
+            onClickNextFooter();
+        } else if (id == R.id.layoutPlayerFooterMain) {
+            onClickPlayerFooter();
+        } else if (id == R.id.lblTopChart) {
+            isPlaylist = false;
+            onClickTopChart();
+        } else if (id == R.id.lblAllSong) {
+            isPlaylist = false;
+            onClickAllSongs();
+        } else if (id == R.id.lblNominations) {
+            isPlaylist = false;
+            onClickAlbum();
+        } else if (id == R.id.lblCategoryMusic) {
+            isPlaylist = false;
+            onClickCategoryMusic();
+        } else if (id == R.id.lblPlaylist) {
+            isPlaylist = true;
+            onClickPlaylist();
+        } else if (id == R.id.lblSearch) {
+            isPlaylist = false;
+            onClickSearch();
+        } else if (id == R.id.lblRadio) {
+            isPlaylist = false;
+            onClickRadio();
+        } else if (id == R.id.lblMultipleYourReward) {
+            isPlaylist = false;
+            onClickGoodApp();
+        } else if (id == R.id.lblMyDownLoad) {
+            isPlaylist = false;
+            onClickMyDownload();
+        } else if (id == R.id.lblAbout) {
+            isPlaylist = false;
+            onClickAbout();
+        } else if (id == R.id.lblExitApp) {
+            isPlaylist = false;
+            onClickExitApp();
+        } else if (id == R.id.lblClear) {
+            isPlaylist = false;
+            onClickClearCache();
         }
     }
 
@@ -870,22 +825,21 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
             Runtime runtime = Runtime.getRuntime();
             try {
                 runtime.exec(deleteCmd);
-            } catch (IOException e) {
-            }
+            } catch (IOException ignored) { }
         }
     }
 
     private void onClickPreviousFooter() {
-        mService.backSongByOnClick();
+        if (mService != null) mService.backSongByOnClick(); // Null check
     }
 
     private void onClickPlayFooter() {
-        mService.playOrPauseMusic();
-        setButtonPlay();
+        if (mService != null) mService.playOrPauseMusic(); // Null check. UI update will be handled by playStateReceiver.
+        // setButtonPlay(); // REMOVED: Let playStateReceiver handle UI update
     }
 
     private void onClickNextFooter() {
-        mService.nextSongByOnClick();
+        if (mService != null) mService.nextSongByOnClick(); // Null check
     }
 
     private void onClickPlayerFooter() {
@@ -895,60 +849,28 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
         startActivityForResult(intent, PlayerActivity.REQUEST_CODE);
     }
 
-    private void onClickTopChart() {
-        setSelect(MOST_FAVOURITE);
-    }
+    private void onClickTopChart() { setSelect(MOST_FAVOURITE); }
+    private void onClickAllSongs() { setSelect(LASTEST); }
+    private void onClickAlbum() { setSelect(SERIES); }
+    private void onClickCategoryMusic() { setSelect(CATEGORY_MUSIC); }
+    private void onClickPlaylist() { setSelect(PLAYLIST); }
+    private void onClickSearch() { setSelect(SEARCH); }
+    private void onClickRadio() { setSelect(RADIO); }
+    private void onClickGoodApp() { setSelect(MULTIPLE_YOUR_REWARD); }
+    private void onClickMyDownload() { setSelect(MY_DOWNLOAD); }
+    private void onClickAbout() { setSelect(ABOUT); }
 
-    private void onClickAllSongs() {
-        setSelect(LASTEST);
-    }
-
-    private void onClickAlbum() {
-        setSelect(SERIES);
-    }
-
-    private void onClickCategoryMusic() {
-        setSelect(CATEGORY_MUSIC);
-    }
-
-    private void onClickPlaylist() {
-        setSelect(PLAYLIST);
-    }
-
-    private void onClickSearch() {
-        setSelect(SEARCH);
-    }
-
-    private void onClickRadio() {
-        setSelect(RADIO);
-    }
-
-    private void onClickGoodApp() {
-        setSelect(MULTIPLE_YOUR_REWARD);
-    }
-
-    private void onClickMyDownload() {
-        setSelect(MY_DOWNLOAD);
-    }
-
-    private void onClickAbout() {
-        setSelect(ABOUT);
-    }
-
-    private void onClickExitApp() {
-        showQuitDialog();
-    }
+    private void onClickExitApp() { showQuitDialog(); }
 
     @Override
     public void onBackPressed() {
-        if (menu.isMenuShowing()) {
+        if (menu != null && menu.isMenuShowing()) { // Null check
             menu.showContent();
         } else {
             switch (currentFragment) {
                 case CATEGORY_MUSIC_FRAGMENT:
                     quitApp();
                     break;
-
                 case LIST_SONG_FRAGMENT:
                     if (GlobalValue.currentMenu == CATEGORY_MUSIC) {
                         backFragment(CATEGORY_MUSIC_FRAGMENT);
@@ -960,7 +882,6 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
                         quitApp();
                     }
                     break;
-
                 default:
                     quitApp();
                     break;
@@ -976,19 +897,16 @@ public class MainActivity extends FragmentActivity implements OnClickListener {
         new AlertDialog.Builder(this)
                 .setTitle(R.string.app_name)
                 .setMessage(R.string.msgQuitApp)
-                .setPositiveButton(android.R.string.ok,
-                        new DialogInterface.OnClickListener() {
-                            @Override
-                            public void onClick(DialogInterface dialog, int arg1) {
-                                dialog.dismiss();
-                                stopService(intentService);
-                                cancelNotification();
-                                finish();
-                                System.exit(0);
-                            }
-                        }).setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface dialog, int arg1) {
+                        dialog.dismiss();
+                        if (intentService != null) stopService(intentService); // Null check
+                        cancelNotification();
+                        finish();
+                        System.exit(0);
+                    }
+                })
+                .setNegativeButton(android.R.string.cancel, null)
                 .create().show();
     }
-
-
 }

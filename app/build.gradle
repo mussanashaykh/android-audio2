@@ -1,111 +1,101 @@
 buildscript {
     repositories {
-        maven { url 'https://plugins.gradle.org/m2/'}
+        google()
+        mavenCentral()
+        gradlePluginPortal()
     }
     dependencies {
-        classpath 'gradle.plugin.com.onesignal:onesignal-gradle-plugin:[0.12.8, 0.99.99]'
+        // OneSignal Gradle plugin
+        classpath 'gradle.plugin.com.onesignal:onesignal-gradle-plugin:[0.13.4, 0.99.99]'
     }
 }
+
 apply plugin: 'com.onesignal.androidsdk.onesignal-gradle-plugin'
-
-repositories {
-    maven { url 'https://maven.google.com' }
-}
-
-buildscript {
-    repositories {
-        maven { url 'https://maven.fabric.io/public' }
-    }
-
-}
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
 
+repositories {
+    google()
+    mavenCentral()
+}
 
 android {
-    signingConfigs {
-//        debug {
-//            storeFile file('F:\\Projects\\A Games\\ADMOB APPD\\Apktools\\StoreKeys.jks')
-//            storePassword 'mamamita1234'
-//            keyPassword 'mamamita1234'
-//            keyAlias 'key0'
-//        }
-        release {
-            storeFile file('./audio.jks')
-            storePassword '123456'
-            keyAlias 'AdnanAudio'
-            keyPassword '123456'
-        }
-    }
-    compileSdkVersion 33
-    buildToolsVersion '33.0.1'
+    namespace 'com.nurulquran.audio'
+    compileSdkVersion 34
 
     defaultConfig {
         applicationId "com.nurulquran.audio"
-        minSdkVersion 16
-        targetSdkVersion 33
-        versionCode 15
-        versionName '2.5'
+        minSdkVersion 21
+        targetSdkVersion 34
+        versionCode 16
+        versionName "2.6"
         multiDexEnabled true
+
         manifestPlaceholders = [
                 onesignal_app_id: 'd95a1a74-80f1-4786-8722-8c1fae033651',
-                // Project number pulled from dashboard, local value is ignored.
                 onesignal_google_project_number: 'REMOTE'
         ]
     }
 
+    signingConfigs {
+        release {
+            storeFile file(MYAPP_UPLOAD_STORE_FILE)
+            storePassword MYAPP_UPLOAD_STORE_PASSWORD
+            keyAlias MYAPP_UPLOAD_KEY_ALIAS
+            keyPassword MYAPP_UPLOAD_KEY_PASSWORD
+        }
+    }
+
     buildTypes {
         release {
+           // minifyEnabled false
+            //proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            shrinkResources false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
+
     lintOptions {
         checkReleaseBuilds false
-        // Or, if you prefer, you can continue to check for errors in release builds,
-        // but continue the build even when errors are found:
         abortOnError false
     }
 }
-//repositories {
-//    maven {
-//        url "https://mint.splunk.com/gradle/"
-//    }
-//    mavenCentral()
-//
-//}
 
 dependencies {
     implementation files('libs/android-query.0.26.7.jar')
     implementation files('libs/httpmime-4.1.1.jar')
     implementation files('libs/org.apache.http.legacy.jar')
-    def appcompat_version = "1.2.0"
 
+    def appcompat_version = "1.2.0"
     implementation "androidx.appcompat:appcompat:$appcompat_version"
-    // For loading and tinting drawables on older versions of the platform
     implementation "androidx.appcompat:appcompat-resources:$appcompat_version"
+
     implementation 'androidx.multidex:multidex:2.0.1'
-    implementation 'com.android.volley:volley:1.1.1'
+
+    // Use a version that’s on MavenCentral
+    implementation 'com.android.volley:volley:1.2.1'
+
     implementation 'androidx.legacy:legacy-support-v4:1.0.0'
-//    implementation 'com.google.android.gms:play-services:10.2.1'
-//    implementation 'com.google.android.gms:play-services-analytics:8.3.0'
-//    implementation 'com.splunk.mint:mint:5.0.0'
+
     implementation 'com.github.bumptech.glide:glide:4.8.0'
     annotationProcessor 'com.github.bumptech.glide:compiler:4.8.0'
-//    implementation 'com.google.android.gms:play-services-ads:8.3.0'
-//    implementation 'com.google.android.gms:play-services-auth:8.3.0'
-//    implementation 'com.google.android.gms:play-services-gcm:10.2.1'
-    implementation 'com.google.android.exoplayer:exoplayer-core:2.11.5'
-    implementation 'com.google.android.exoplayer:exoplayer-dash:2.11.5'
-    implementation 'com.google.android.exoplayer:exoplayer-ui:2.11.5'
+
+    // Modern ExoPlayer (available on MavenCentral/Google)
+    implementation 'com.google.android.exoplayer:exoplayer-core:2.19.1'
+    implementation 'com.google.android.exoplayer:exoplayer-dash:2.19.1'
+    implementation 'com.google.android.exoplayer:exoplayer-ui:2.19.1'
+
     implementation "androidx.core:core-ktx:1.7.0"
     implementation 'com.onesignal:OneSignal:[4.0.0, 4.99.99]'
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"

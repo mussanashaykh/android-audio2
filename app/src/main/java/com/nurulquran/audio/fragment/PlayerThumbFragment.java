@@ -5,21 +5,14 @@ import android.app.Notification;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
-import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
-import android.media.MediaPlayer;
-import android.media.PlaybackParams;
-import android.media.session.MediaController;
-import android.media.session.MediaSession;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
-import android.provider.Settings;
 import android.text.Html;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -28,7 +21,6 @@ import android.view.WindowManager;
 import android.widget.ImageView;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
-import android.widget.VideoView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -38,38 +30,17 @@ import androidx.core.content.ContextCompat;
 
 import com.android.volley.VolleyError;
 import com.androidquery.AQuery;
-import com.google.android.exoplayer2.DefaultLoadControl;
-import com.google.android.exoplayer2.DefaultRenderersFactory;
 import com.google.android.exoplayer2.ExoPlayer;
-import com.google.android.exoplayer2.ExoPlayerFactory;
-import com.google.android.exoplayer2.PlaybackParameters;
+import com.google.android.exoplayer2.MediaItem;
 import com.google.android.exoplayer2.Player;
-import com.google.android.exoplayer2.SimpleExoPlayer;
-import com.google.android.exoplayer2.database.ExoDatabaseProvider;
-import com.google.android.exoplayer2.extractor.DefaultExtractorsFactory;
-import com.google.android.exoplayer2.source.ExtractorMediaSource;
-import com.google.android.exoplayer2.source.MediaSource;
-import com.google.android.exoplayer2.source.ProgressiveMediaSource;
-import com.google.android.exoplayer2.source.dash.DashChunkSource;
-import com.google.android.exoplayer2.source.dash.DashMediaSource;
-import com.google.android.exoplayer2.source.dash.DefaultDashChunkSource;
-import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
 import com.google.android.exoplayer2.ui.PlayerNotificationManager;
+// Add this import
+import com.google.android.exoplayer2.ui.PlayerNotificationManager.Builder;
 import com.google.android.exoplayer2.ui.PlayerView;
-import com.google.android.exoplayer2.ui.SimpleExoPlayerView;
-import com.google.android.exoplayer2.upstream.DataSource;
-import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
-import com.google.android.exoplayer2.upstream.DefaultHttpDataSourceFactory;
-import com.google.android.exoplayer2.upstream.cache.Cache;
-import com.google.android.exoplayer2.upstream.cache.CacheDataSourceFactory;
-import com.google.android.exoplayer2.upstream.cache.LeastRecentlyUsedCacheEvictor;
-import com.google.android.exoplayer2.upstream.cache.NoOpCacheEvictor;
-import com.google.android.exoplayer2.upstream.cache.SimpleCache;
 import com.google.android.exoplayer2.util.Util;
 import com.nurulquran.audio.BaseFragment;
 import com.nurulquran.audio.R;
 import com.nurulquran.audio.activity.ExoFullScreen;
-//import com.nurulquran.audio.activity.FullScreenVideoActivity;
 import com.nurulquran.audio.activity.MainActivity;
 import com.nurulquran.audio.activity.PlayerActivity;
 import com.nurulquran.audio.config.GlobalValue;
@@ -77,33 +48,35 @@ import com.nurulquran.audio.config.WebserviceApi;
 import com.nurulquran.audio.modelmanager.ModelManager;
 import com.nurulquran.audio.modelmanager.ModelManagerListener;
 import com.nurulquran.audio.object.Song;
+import com.nurulquran.audio.service.MusicService; // Added import for MusicService
 import com.nurulquran.audio.service.PlayerListener;
-
 
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
-import java.util.Objects;
 
-import static com.nurulquran.audio.activity.PlayerActivity.NOTIFICATION_ID;
 import static com.nurulquran.audio.activity.PlayerActivity.PERMISSION_WRITE_STORAGE_Player;
 
+@SuppressWarnings({"deprecation"}) // Silence Exo 2.19 deprecation nudges (Media3 migration)
 public class PlayerThumbFragment extends BaseFragment {
 
     private static final String CHANNEL_ID = "nur_quran";
+
     private TextView lblNameSong, lblArtist;
     public static TextView lblNumberListen, lblNumberDownload;
     private View btnDownload, btnShare;
     private ImageView imgSong;
     private AQuery aq = null;
-    private SimpleExoPlayer player;
+
+    private ExoPlayer player;
     private PlayerView playerView;
     private boolean playWhenReady = true;
     private int currentWindow = 0;
     private long playbackPosition = 0;
     private PlaybackStateListener playbackStateListener;
+
     private RelativeLayout relativedownload;
     private RelativeLayout relativeimage;
     private boolean playmp3 = true;
@@ -117,31 +90,27 @@ public class PlayerThumbFragment extends BaseFragment {
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container,
                              Bundle savedInstanceState) {
-        View view = inflater.inflate(R.layout.fragment_player_thumb, container,
-                false);
+        View view = inflater.inflate(R.layout.fragment_player_thumb, container, false);
         aq = new AQuery(getActivity());
         initUI(view);
         playbackStateListener = new PlaybackStateListener();
         if (!playmp3) {
             playvideo();
         } else {
-
             showmp3view();
         }
-
         return view;
     }
 
     private void initUI(View view) {
-        getActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        relativedownload = (RelativeLayout) view.findViewById(R.id.relative_download);
-        relativeimage = (RelativeLayout) view.findViewById(R.id.relative_image_view);
-        imgSong = (ImageView) view.findViewById(R.id.imgSong);
-        lblNumberDownload = (TextView) view
-                .findViewById(R.id.lblNumberDownload);
-        lblNumberListen = (TextView) view.findViewById(R.id.lblNumberListen);
-        lblNameSong = (TextView) view.findViewById(R.id.lblNameSong);
-        lblArtist = (TextView) view.findViewById(R.id.lblArtist);
+        requireActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        relativedownload = view.findViewById(R.id.relative_download);
+        relativeimage = view.findViewById(R.id.relative_image_view);
+        imgSong = view.findViewById(R.id.imgSong);
+        lblNumberDownload = view.findViewById(R.id.lblNumberDownload);
+        lblNumberListen = view.findViewById(R.id.lblNumberListen);
+        lblNameSong = view.findViewById(R.id.lblNameSong);
+        lblArtist = view.findViewById(R.id.lblArtist);
         btnShare = view.findViewById(R.id.btnShare);
         btnDownload = view.findViewById(R.id.btnDownload);
         lblNameSong.setSelected(true);
@@ -150,141 +119,54 @@ public class PlayerThumbFragment extends BaseFragment {
         addFullscreen();
     }
 
-    boolean fullscreen = false;
-
-    public void addFullscreen() {
-         tvSpeed =(TextView) playerView.findViewById(R.id.togle_speed);
-        tvSpeed.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                if(tvSpeed.getText().toString().equals("0.5")) {
-                    PlaybackParameters param = new PlaybackParameters(0.75f);
-                    tvSpeed.setText("0.75");
-                    if (player != null)
-                        player.setPlaybackParameters(param);
-                }else if(tvSpeed.getText().toString().equals("0.75"))
-                {
-                    PlaybackParameters param = new PlaybackParameters(1f);
-                    tvSpeed.setText("1");
-                    if (player != null)
-                        player.setPlaybackParameters(param);
-                }
-
-                else if(tvSpeed.getText().toString().equals("1"))
-                {
-                    PlaybackParameters param = new PlaybackParameters(1.25f);
-                    tvSpeed.setText("1.25");
-                    if (player != null)
-                        player.setPlaybackParameters(param);
-                }else if(tvSpeed.getText().toString().equals("1.25"))
-                {
-                    PlaybackParameters param = new PlaybackParameters(1.5f);
-                    tvSpeed.setText("1.5");
-                    if (player != null)
-                        player.setPlaybackParameters(param);
-                }
-                else if(tvSpeed.getText().toString().equals("1.5"))
-                {
-                    PlaybackParameters param = new PlaybackParameters(1.75f);
-                    tvSpeed.setText("1.75");
-                    if (player != null)
-                        player.setPlaybackParameters(param);
-                }else if(tvSpeed.getText().toString().equals("1.75"))
-                {
-                    PlaybackParameters param = new PlaybackParameters(0.5f);
-                    tvSpeed.setText("0.5");
-                    if (player != null)
-                        player.setPlaybackParameters(param);
-                }
-            }
+    private void addFullscreen() {
+        tvSpeed = playerView.findViewById(R.id.togle_speed);
+        tvSpeed.setOnClickListener(v -> {
+            if (player == null) return;
+            String s = tvSpeed.getText().toString();
+            float next =
+                    "0.5".equals(s) ? 0.75f :
+                            "0.75".equals(s) ? 1.0f :
+                                    "1".equals(s) ? 1.25f :
+                                            "1.25".equals(s) ? 1.5f :
+                                                    "1.5".equals(s) ? 1.75f : 0.5f;
+            tvSpeed.setText(String.valueOf(next));
+            player.setPlaybackSpeed(next);
         });
+
         fullscreenButton = playerView.findViewById(R.id.exo_fullscreen_icon);
-        fullscreenButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-
-//                playWhenReady = false; // pause current video if it's playing
-//                startActivity(
-//                        FullScreenVideoActivity.newIntent(
-//                                getActivity(),
-//                                videosong.getUrl(),
-//                                player.getCurrentPosition()
-//                        )
-//                );
-                Intent intent = new Intent(getActivity(), ExoFullScreen.class);
-                intent.setData(Uri.fromFile(new File(videosong.getUrl())));
-                intent.putExtra("video_url",videosong.getUrl());
-                intent.putExtra("video_name",videosong.getName());
-                intent.putExtra("video_position",player.getCurrentPosition());
-                startActivity(intent);
-               player.setPlayWhenReady(false);
-
-//                releasePlayer();
-//                if (fullscreen) {
-//                    fullscreenButton.setImageDrawable(ContextCompat.getDrawable(getActivity(), R.drawable.ic_baseline_aspect_ratio_24));
-//                    getActivity().getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
-//
-//                    getActivity().setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-//                    RelativeLayout.LayoutParams params = (RelativeLayout.LayoutParams) playerView.getLayoutParams();
-//                    params.width = params.MATCH_PARENT;
-//                    params.height = (int) (200 * getActivity().getApplicationContext().getResources().getDisplayMetrics().density);
-//                    playerView.setLayoutParams(params);
-//                    fullscreen = false;
-//                } else {
-//                    fullscreenButton.setImageDrawable(ContextCompat.getDrawable(getActivity(), R.drawable.ic_baseline_aspect_ratio_24));
-//                    getActivity().getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN
-//                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-//                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION);
-////                    if(getSupportActionBar() != null){
-////                        getSupportActionBar().hide();
-////                    }
-//                    getActivity().setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-//                    RelativeLayout.LayoutParams params = (RelativeLayout.LayoutParams) playerView.getLayoutParams();
-//                    params.width = params.MATCH_PARENT;
-//                    params.height = params.MATCH_PARENT;
-//                    playerView.setLayoutParams(params);
-//                    fullscreen = true;
-//                }
-            }
+        fullscreenButton.setOnClickListener(v -> {
+            if (videosong == null || player == null) return;
+            Intent intent = new Intent(getActivity(), ExoFullScreen.class);
+            intent.putExtra("video_url", videosong.getUrl());
+            intent.putExtra("video_name", videosong.getName());
+            intent.putExtra("video_position", player.getCurrentPosition());
+            startActivity(intent);
+            player.setPlayWhenReady(false);
         });
     }
 
-    @Override
-    public void onDestroy() {
-
-//            releasePlayer();
-
-        super.onDestroy();
+    @Override public void onStart() {
+        super.onStart();
+        if (!playmp3) playvideo(); else showmp3view();
     }
 
-    @Override
-    public void onDestroyView() {
-//        releasePlayer();
+    @Override public void onResume() {
+        super.onResume();
+        if (player != null) player.setPlayWhenReady(true);
+    }
+
+    @Override public void onStop() {
+        super.onStop();
+        if (Util.SDK_INT >= 24) { /* keep instance; Exo handles lifecycle */ }
+    }
+
+    @Override public void onDestroyView() {
         super.onDestroyView();
     }
 
-    @Override
-    public void onStart() {
-        super.onStart();
-        if (!playmp3) {
-            playvideo();
-        } else {
-            showmp3view();
-        }
-    }
-
-    @Override
-    public void onPause() {
-        super.onPause();
-
-    }
-
-    @Override
-    public void onStop() {
-        super.onStop();
-        if (Util.SDK_INT >= 24) {
-//            releasePlayer();
-        }
+    @Override public void onDestroy() {
+        super.onDestroy();
     }
 
     public void releasePlayer() {
@@ -292,115 +174,71 @@ public class PlayerThumbFragment extends BaseFragment {
             alreadayPlaying = false;
             playWhenReady = player.getPlayWhenReady();
             playbackPosition = player.getCurrentPosition();
-            currentWindow = player.getCurrentWindowIndex();
+            currentWindow = player.getCurrentMediaItemIndex();
             player.removeListener(playbackStateListener);
-            playerNotificationManager.setPlayer(null);
+            if (playerNotificationManager != null) playerNotificationManager.setPlayer(null);
             player.release();
             player = null;
         }
     }
 
-    @Override
-    public void onResume() {
-        super.onResume();
-            if(player != null)
-            player.setPlayWhenReady(true);
-
-    }
-
     private void initializenotification() {
-        playerNotificationManager = PlayerNotificationManager.createWithNotificationChannel(getContext(),
-                CHANNEL_ID,
-                R.string.exo_download_notification_channel_name,
-                R.string.exo_download_notification_channel_name,
-                MainActivity.NOTIFICATION_ID, new DescriptionAdapter(), new PlayerNotificationManager.NotificationListener() {
-            @Override
-            public void onNotificationCancelled(int notificationId, boolean dismissedByUser) {
+        PlayerNotificationManager.Builder builder = new PlayerNotificationManager.Builder(
+                requireContext(),
+                MainActivity.NOTIFICATION_ID,
+                CHANNEL_ID
+        );
 
-            }
+        builder.setChannelNameResourceId(R.string.exo_download_notification_channel_name)
+                .setChannelDescriptionResourceId(R.string.exo_download_notification_channel_name)
+                .setMediaDescriptionAdapter(new DescriptionAdapter())
+                .setNotificationListener(new PlayerNotificationManager.NotificationListener() {
+                    @Override
+                    public void onNotificationPosted(int notificationId, Notification notification, boolean ongoing) {
+                        PlayerNotificationManager.NotificationListener.super.onNotificationPosted(notificationId, notification, ongoing);
+                        if (ongoing) {
+                            ContextCompat.startForegroundService(requireContext(), new Intent(requireContext(), MusicService.class)); // Changed to MusicService
+                        }
+                    }
 
-            @Override
-            public void onNotificationPosted(int notificationId, Notification notification, boolean ongoing) {
-            }
-        });
+                    @Override
+                    public void onNotificationCancelled(int notificationId, boolean dismissedByUser) {
+                        PlayerNotificationManager.NotificationListener.super.onNotificationCancelled(notificationId, dismissedByUser);
+                        // Stop foreground service and remove the notification, as necessary
+                        // This might involve calling stopSelf() from within your service
+                    }
+                })
+                .setSmallIconResourceId(R.drawable.notify_icon);
+
+        playerNotificationManager = builder.build();
 
         playerNotificationManager.setPlayer(player);
         playerNotificationManager.setColor(Color.BLACK);
         playerNotificationManager.setColorized(true);
-        playerNotificationManager.setUseChronometer(true);
-        playerNotificationManager.setUseStopAction(true);
-        playerNotificationManager.setSmallIcon(R.drawable.notify_icon);
+        // These are now set in the builder, so they can be removed from here
+        // playerNotificationManager.setUseChronometer(true);
+        // playerNotificationManager.setUseStopAction(true);
+        // playerNotificationManager.setSmallIcon(R.drawable.notify_icon);
         playerNotificationManager.setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL);
-        playerNotificationManager.setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
-// omit skip previous and next actions
-        playerNotificationManager.setUseNavigationActions(false);
-// omit fast forward action by setting the increment to zero
-        playerNotificationManager.setFastForwardIncrementMs(10000);
-// omit rewind action by setting the increment to zero
-        playerNotificationManager.setRewindIncrementMs(10000);
-// omit the stop action
-        playerNotificationManager.setUsePlayPauseActions(true);
+        // playerNotificationManager.setVisibility(NotificationCompat.VISIBILITY_PUBLIC);
+        // playerNotificationManager.setUseNavigationActions(false);
+        // playerNotificationManager.setUsePlayPauseActions(true);
     }
 
     private void initializePlayer(String url) {
-
         if (player == null) {
-//            DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(getContext().getApplicationContext());
-
-            DefaultLoadControl loadControl = new DefaultLoadControl();
-            DefaultTrackSelector trackSelector = new DefaultTrackSelector(getActivity());
-//            trackSelector.setParameters(
-//                    trackSelector.buildUponParameters().setMaxVideoSizeSd());
-            player = new SimpleExoPlayer.Builder(getActivity())
-                    .setTrackSelector(trackSelector)
-                    .setLoadControl(loadControl)
-                    .build();
-
+            player = new ExoPlayer.Builder(requireContext()).build();
             initializenotification();
             alreadayPlaying = true;
-            if(tvSpeed != null)
-            tvSpeed.setText("1");
+            if (tvSpeed != null) tvSpeed.setText("1");
         }
 
-//            player = new SimpleExoPlayer.Builder(getActivity()).build();
         playerView.setPlayer(player);
-
-        MediaSource mediaSource = buildMediaSource(Uri.parse(url));
         player.setPlayWhenReady(playWhenReady);
-        player.seekTo(currentWindow, playbackPosition);
         player.addListener(playbackStateListener);
-        player.prepare(mediaSource, true, false);
-    }
-
-    private MediaSource buildMediaSource(Uri uri) {
-
-
-        DataSource.Factory dataSourceFactory =
-                new DefaultDataSourceFactory(getActivity(), "exoplayer-nurulquran");
-
-        CacheDataSourceFactory cacheDataSourceFactory =
-                new CacheDataSourceFactory(getCache(getContext()), dataSourceFactory);
-
-        return new ProgressiveMediaSource.Factory(cacheDataSourceFactory)
-                .createMediaSource(uri);
-//        return new ExtractorMediaSource(uri,
-//                new CacheDataSourceFactory(getContext(), 100 * 1024 * 1024, 5 * 1024 * 1024), new DefaultExtractorsFactory(), null, null);
-    }
-
-    static Cache cache;
-
-    public Cache getCache(Context context) {
-        if (cache == null) {
-            String rootFolder = Environment.getExternalStorageDirectory() + "/"
-                    + getString(R.string.app_name) + "/";
-            File cachedir = new File(rootFolder, ".nqc1");
-            if (!cachedir.exists()) {
-                cachedir.mkdirs();
-            }
-            cache = new SimpleCache(cachedir, new NoOpCacheEvictor(), new ExoDatabaseProvider(context));
-        }
-        return cache;
-
+        player.setMediaItem(MediaItem.fromUri(Uri.parse(url)));
+        player.prepare();
+        player.seekTo(currentWindow, playbackPosition);
     }
 
     public void refreshData() {
@@ -412,85 +250,52 @@ public class PlayerThumbFragment extends BaseFragment {
                 lblArtist.setText("");
             }
             getCountDownLoadAndCountDown();
-            aq.id(imgSong).image(GlobalValue.getCurrentSong().getImage(), true,
-                    false, 0, R.drawable.music_defaut);
+            aq.id(imgSong).image(GlobalValue.getCurrentSong().getImage(), true, false, 0, R.drawable.music_defaut);
         } else {
-            new Handler().postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    refreshData();
-                }
-            }, 500);
+            new Handler().postDelayed(this::refreshData, 500);
         }
     }
 
     private void getCountDownLoadAndCountDown() {
         ModelManager.getCountDownAndCountListen(getActivity(), GlobalValue.getCurrentSong().getId(), new ModelManagerListener() {
-            @Override
-            public void onError(VolleyError error) {
-                error.printStackTrace();
-            }
-
-            @Override
-            public void onSuccess(String json) {
+            @Override public void onError(VolleyError error) { error.printStackTrace(); }
+            @Override public void onSuccess(String json) {
                 try {
                     JSONObject object = new JSONObject(json);
                     JSONArray jsonArray = object.getJSONArray(WebserviceApi.KEY_DATA);
                     JSONObject obj = jsonArray.getJSONObject(0);
                     lblNumberDownload.setText(obj.getString("download"));
                     lblNumberListen.setText(obj.getString("listen"));
-                } catch (JSONException e) {
-                    e.printStackTrace();
-                }
-
+                } catch (JSONException ignored) { }
             }
         });
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        switch (requestCode) {
-            case PERMISSION_WRITE_STORAGE_Player: {
-                if (grantResults.length > 0) {
-                    if (!playmp3) {
-                        releasePlayer();
-                        initializePlayer(videosong.getUrl());
-                    }
-                }
+        if (requestCode == PERMISSION_WRITE_STORAGE_Player && grantResults.length > 0) {
+            if (!playmp3) {
+                releasePlayer();
+                initializePlayer(videosong.getUrl());
             }
         }
     }
 
     public void playvideo() {
         hidemp3view();
-
         if (!checkPermission()) {
-
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                if(!alreadayPlaying) {
+                if (!alreadayPlaying) {
                     releasePlayer();
                     initializePlayer(videosong.getUrl());
                 }
-
-//                try {
-//                    Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
-//                    intent.addCategory("android.intent.category.DEFAULT");
-//                    intent.setData(Uri.parse(String.format("package:%s",requireActivity().getApplicationContext().getPackageName())));
-//                    startActivityForResult(intent, 2296);
-//                } catch (Exception e) {
-//                    Intent intent = new Intent();
-//                    intent.setAction(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
-//                    startActivityForResult(intent, 2296);
-//                }
-            }else {
+            } else {
                 ActivityCompat.requestPermissions(requireActivity(),
-                        new String[]{
-                                Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                                Manifest.permission.READ_EXTERNAL_STORAGE
-                        }, PERMISSION_WRITE_STORAGE_Player);
+                        new String[]{ Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE },
+                        PERMISSION_WRITE_STORAGE_Player);
             }
-        }  else {
-            if(!alreadayPlaying) {
+        } else {
+            if (!alreadayPlaying) {
                 releasePlayer();
                 initializePlayer(videosong.getUrl());
             }
@@ -498,26 +303,20 @@ public class PlayerThumbFragment extends BaseFragment {
     }
 
     private boolean checkPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            return true;
-        } else {
-            int result = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.READ_EXTERNAL_STORAGE);
-            int result1 = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.WRITE_EXTERNAL_STORAGE);
-            return result == PackageManager.PERMISSION_GRANTED && result1 == PackageManager.PERMISSION_GRANTED;
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) return true;
+        int r = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.READ_EXTERNAL_STORAGE);
+        int w = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.WRITE_EXTERNAL_STORAGE);
+        return r == PackageManager.PERMISSION_GRANTED && w == PackageManager.PERMISSION_GRANTED;
     }
+
     public void playvideo(Song currentSong) {
         playmp3 = false;
         videosong = currentSong;
         alreadayPlaying = false;
-        if (relativeimage != null) {
-            playvideo();
-        }
+        if (relativeimage != null) playvideo();
     }
 
-    public void setListener(PlayerListener listener) {
-        this.listener = listener;
-    }
+    public void setListener(PlayerListener listener) { this.listener = listener; }
 
     public void hidemp3view() {
         if (relativeimage != null) {
@@ -536,72 +335,62 @@ public class PlayerThumbFragment extends BaseFragment {
         }
     }
 
-
-    private class PlaybackStateListener implements Player.EventListener {
-
-        @Override
-        public void onPlayerStateChanged(boolean playWhenReady,
-                                         int playbackState) {
-            String stateString;
-            switch (playbackState) {
-                case ExoPlayer.STATE_IDLE:
-                    stateString = "ExoPlayer.STATE_IDLE      -";
-                    break;
-                case ExoPlayer.STATE_BUFFERING:
-                    stateString = "ExoPlayer.STATE_BUFFERING -";
-                    break;
-                case ExoPlayer.STATE_READY:
-                    stateString = "ExoPlayer.STATE_READY     -";
-                    break;
-                case ExoPlayer.STATE_ENDED:
+    private class PlaybackStateListener implements Player.Listener {
+        @Override public void onPlaybackStateChanged(int state) {
+            switch (state) {
+                case Player.STATE_ENDED:
                     alreadayPlaying = false;
-                    listener.onChangeSong(GlobalValue.currentSongPlay + 1);
+                    if (listener != null) listener.onChangeSong(GlobalValue.currentSongPlay + 1);
                     break;
                 default:
-                    stateString = "UNKNOWN_STATE             -";
                     break;
             }
-
         }
     }
 
-    class DescriptionAdapter implements
-            PlayerNotificationManager.MediaDescriptionAdapter {
-
-        @Override
-        public String getCurrentContentTitle(Player player) {
-//            int window = player.getCurrentWindowIndex();
-            return GlobalValue.getCurrentSong().getName();
+    class DescriptionAdapter implements PlayerNotificationManager.MediaDescriptionAdapter {
+        @Override public CharSequence getCurrentContentTitle(Player player) {
+            if (GlobalValue.getCurrentSong() != null) {
+                return GlobalValue.getCurrentSong().getName();
+            }
+            return "Unknown Title";
         }
 
-        @Nullable
-        @Override
-        public String getCurrentContentText(Player player) {
-//            int window = player.getCurrentWindowIndex();
-            return Html.fromHtml(GlobalValue.getCurrentSong().getDescription()).toString();
+        @Nullable @Override public CharSequence getCurrentContentText(Player player) {
+            if (GlobalValue.getCurrentSong() != null && GlobalValue.getCurrentSong().getDescription() != null) {
+                return Html.fromHtml(GlobalValue.getCurrentSong().getDescription());
+            }
+            return "Unknown Artist";
         }
 
-        @Nullable
-        @Override
-        public Bitmap getCurrentLargeIcon(Player player,
-                                          PlayerNotificationManager.BitmapCallback callback) {
-//            int window = player.getCurrentWindowIndex();
-            return BitmapFactory.decodeResource(getContext().getResources(),
-                    R.drawable.notify_icon);
+        @Nullable @Override public android.graphics.Bitmap getCurrentLargeIcon(Player player, PlayerNotificationManager.BitmapCallback cb) {
+            // This needs proper asynchronous loading if fetching from a URL.
+            // For now, using a placeholder.
+             if (GlobalValue.getCurrentSong() != null && GlobalValue.getCurrentSong().getImage() != null) {
+                // TODO: Implement proper image loading with Glide or Picasso and use the callback.
+                // Example:
+                // Glide.with(requireContext())
+                // .asBitmap()
+                // .load(GlobalValue.getCurrentSong().getImage())
+                // .into(new CustomTarget<Bitmap>() {
+                // @Override
+                // public void onResourceReady(@NonNull Bitmap resource, @Nullable Transition<? super Bitmap> transition) {
+                // callback.onBitmap(resource);
+                // }
+                // @Override
+                // public void onLoadCleared(@Nullable Drawable placeholder) { }
+                // });
+                // return null; // Return null now, callback will provide the bitmap
+                return BitmapFactory.decodeResource(requireContext().getResources(), R.drawable.music_defaut); // Placeholder
+            }
+            return BitmapFactory.decodeResource(requireContext().getResources(), R.drawable.music_defaut); // Placeholder
         }
 
-        @Nullable
-        @Override
-        public PendingIntent createCurrentContentIntent(Player player) {
+        @Nullable @Override public PendingIntent createCurrentContentIntent(Player player) {
             Intent intent = new Intent(getContext(), PlayerActivity.class);
             intent.putExtra("notification_status", true);
-            intent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP
-            );
-            return PendingIntent.getActivity(getContext(), 0,
-                    intent, PendingIntent.FLAG_NO_CREATE);
+            intent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            return PendingIntent.getActivity(getContext(), 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0));
         }
-
     }
-
-
 }

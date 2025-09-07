@@ -9,9 +9,10 @@ import android.util.TypedValue;
 import android.view.View;
 import android.view.accessibility.CaptioningManager;
 
-import com.google.android.exoplayer2.text.CaptionStyleCompat;
 import com.google.android.exoplayer2.text.Cue;
+import com.google.android.exoplayer2.text.CueGroup; // Added import
 import com.google.android.exoplayer2.text.TextOutput;
+import com.google.android.exoplayer2.ui.CaptionStyleCompat;
 import com.google.android.exoplayer2.util.Util;
 
 import java.util.ArrayList;
@@ -33,7 +34,7 @@ public class SubtitleView extends View implements TextOutput {
 
     public SubtitleView(Context context, AttributeSet attrs) {
         super(context, attrs);
-        this.painters = new ArrayList();
+        this.painters = new ArrayList<>();
         this.textSizeType = 0;
         this.textSize = 0.0533f;
         this.applyEmbeddedStyles = true;
@@ -42,8 +43,10 @@ public class SubtitleView extends View implements TextOutput {
         this.bottomPaddingFraction = 0.08f;
     }
 
-    public void onCues(List<Cue> cues) {
-        setCues(cues);
+    // Updated onCues method signature
+    @Override
+    public void onCues(CueGroup cueGroup) {
+        setCues(cueGroup.cues); // Access the list of cues from CueGroup
     }
 
     public void setCues(List<Cue> cues) {
@@ -58,13 +61,7 @@ public class SubtitleView extends View implements TextOutput {
     }
 
     public void setFixedTextSize(int unit, float size) {
-        Resources resources;
-        Context context = getContext();
-        if (context == null) {
-            resources = Resources.getSystem();
-        } else {
-            resources = context.getResources();
-        }
+        Resources resources = getContext() == null ? Resources.getSystem() : getContext().getResources();
         setTextSize(2, TypedValue.applyDimension(unit, size, resources.getDisplayMetrics()));
     }
 
@@ -105,8 +102,8 @@ public class SubtitleView extends View implements TextOutput {
     }
 
     public void setUserDefaultStyle() {
-        CaptionStyleCompat userCaptionStyleV19 = (Util.SDK_INT < 19 || isInEditMode()) ? CaptionStyleCompat.DEFAULT : getUserCaptionStyleV19();
-        setStyle(userCaptionStyleV19);
+        CaptionStyleCompat user = (Util.SDK_INT < 19 || isInEditMode()) ? CaptionStyleCompat.DEFAULT : getUserCaptionStyleV19();
+        setStyle(user);
     }
 
     public void setStyle(CaptionStyleCompat style) {
@@ -123,13 +120,9 @@ public class SubtitleView extends View implements TextOutput {
         }
     }
 
+    @Override
     public void dispatchDraw(Canvas canvas) {
-        int cueCount;
-        if (this.cues == null) {
-            cueCount = 0;
-        } else {
-            cueCount = this.cues.size();
-        }
+        int cueCount = (this.cues == null) ? 0 : this.cues.size();
         int rawTop = getTop();
         int rawBottom = getBottom();
         int left = getLeft() + getPaddingLeft();
@@ -145,7 +138,15 @@ public class SubtitleView extends View implements TextOutput {
             }
             if (textSizePx > 0.0f) {
                 for (int i = 0; i < cueCount; i++) {
-                    ((SubtitlePainter) this.painters.get(i)).draw((Cue) this.cues.get(i), this.applyEmbeddedStyles, this.applyEmbeddedFontSizes, this.style, textSizePx, this.bottomPaddingFraction, canvas, left, top, right, bottom);
+                    this.painters.get(i).draw(
+                            this.cues.get(i),
+                            this.applyEmbeddedStyles,
+                            this.applyEmbeddedFontSizes,
+                            this.style,
+                            textSizePx,
+                            this.bottomPaddingFraction,
+                            canvas, left, top, right, bottom
+                    );
                 }
             }
         }
@@ -153,11 +154,25 @@ public class SubtitleView extends View implements TextOutput {
 
     @TargetApi(19)
     private float getUserCaptionFontScaleV19() {
-        return ((CaptioningManager) getContext().getSystemService("captioning")).getFontScale();
+        CaptioningManager cm = (CaptioningManager) getContext().getSystemService(Context.CAPTIONING_SERVICE);
+        if (cm == null) return 1.0f;
+        return cm.getFontScale();
     }
 
     @TargetApi(19)
     private CaptionStyleCompat getUserCaptionStyleV19() {
-        return CaptionStyleCompat.createFromCaptionStyle(((CaptioningManager) getContext().getSystemService("captioning")).getUserStyle());
+        CaptioningManager cm = (CaptioningManager) getContext().getSystemService(Context.CAPTIONING_SERVICE);
+        if (cm == null) return CaptionStyleCompat.DEFAULT;
+        CaptioningManager.CaptionStyle cs = cm.getUserStyle();
+        // ExoPlayer 2.19.1 ui.CaptionStyleCompat provides fromCaptionStyle(..)
+        try {
+            // Try the public API if present
+            return (CaptionStyleCompat) CaptionStyleCompat.class
+                    .getMethod("fromCaptionStyle", CaptioningManager.CaptionStyle.class)
+                    .invoke(null, cs);
+        } catch (Throwable ignore) {
+            // Fallback to DEFAULT if method name changes across minor versions
+            return CaptionStyleCompat.DEFAULT;
+        }
     }
 }

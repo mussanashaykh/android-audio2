@@ -1,5 +1,6 @@
 package com.nurulquran.audio.activity
 
+
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
@@ -28,6 +29,7 @@ import com.google.android.exoplayer2.util.MimeTypes.BASE_TYPE_AUDIO
 import com.google.android.exoplayer2.util.Util
 import com.nurulquran.audio.R
 import java.io.File
+
 
 private const val EXTRA_VIDEO_URL = "EXTRA_VIDEO_URL"
 private const val EXTRA_PLAYBACK_POSITION_MS = "EXTRA_PLAYBACK_POSITION_MS"
@@ -229,8 +231,9 @@ class FullScreenVideoActivity : AppCompatActivity() {
     private fun buildMediaSource(uri: Uri): MediaSource? {
         val dataSourceFactory: DataSource.Factory = DefaultDataSourceFactory(this, "exoplayer-nurulquran")
 //        val cacheDataSourceFactory = CacheDataSourceFactory(getCache(this), dataSourceFactory)
+        val mediaItem = com.google.android.exoplayer2. MediaItem.fromUri(uri)
         return ProgressiveMediaSource.Factory(dataSourceFactory)
-                .createMediaSource(uri)
+            .createMediaSource(mediaItem)
 //        return new ExtractorMediaSource(uri,
 //                new CacheDataSourceFactory(getContext(), 100 * 1024 * 1024, 5 * 1024 * 1024), new DefaultExtractorsFactory(), null, null);
     }

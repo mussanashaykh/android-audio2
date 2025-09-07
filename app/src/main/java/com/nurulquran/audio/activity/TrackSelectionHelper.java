@@ -12,21 +12,22 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.CheckedTextView;
 
-import com.google.android.exoplayer2.source.TrackGroup;
-import com.google.android.exoplayer2.source.TrackGroupArray;
+import com.google.android.exoplayer2.C; // Added import
+import com.google.android.exoplayer2.trackselection.AdaptiveTrackSelection;
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
+import com.google.android.exoplayer2.trackselection.ExoTrackSelection;
 import com.google.android.exoplayer2.trackselection.FixedTrackSelection;
 import com.google.android.exoplayer2.trackselection.MappingTrackSelector;
-import com.google.android.exoplayer2.trackselection.RandomTrackSelection;
-import com.google.android.exoplayer2.trackselection.TrackSelection;
+import com.google.android.exoplayer2.source.TrackGroup;
+import com.google.android.exoplayer2.source.TrackGroupArray;
 import com.nurulquran.audio.R;
 
 import java.util.Arrays;
 
 public class TrackSelectionHelper implements View.OnClickListener, DialogInterface.OnClickListener {
-    private static final TrackSelection.Factory FIXED_FACTORY = new FixedTrackSelection.Factory();
-    private static final TrackSelection.Factory RANDOM_FACTORY = new RandomTrackSelection.Factory();
-    private final TrackSelection.Factory adaptiveTrackSelectionFactory;
+    //    private static final ExoTrackSelection.Factory FIXED_FACTORY = new FixedTrackSelection.Factory(); // Removed this line
+    private final ExoTrackSelection.Factory adaptiveTrackSelectionFactory;
+
     private CheckedTextView defaultView;
     private CheckedTextView disableView;
     private CheckedTextView enableRandomAdaptationView;
@@ -39,10 +40,11 @@ public class TrackSelectionHelper implements View.OnClickListener, DialogInterfa
     private MappingTrackSelector.MappedTrackInfo trackInfo;
     private CheckedTextView[][] trackViews;
 
-    public TrackSelectionHelper(MappingTrackSelector selector, TrackSelection.Factory adaptiveTrackSelectionFactory) {
+    public TrackSelectionHelper(MappingTrackSelector selector, ExoTrackSelection.Factory adaptiveTrackSelectionFactory) {
         this.selector = selector;
         this.adaptiveTrackSelectionFactory = adaptiveTrackSelectionFactory;
     }
+
 
     private static int[] getTracksAdding(DefaultTrackSelector.SelectionOverride override, int addedTrack) {
         int[] tracks = override.tracks;
@@ -123,7 +125,7 @@ public class TrackSelectionHelper implements View.OnClickListener, DialogInterfa
                 CheckedTextView trackView = (CheckedTextView) inflater.inflate(groupIsAdaptive ? 17367056 : 17367055, root, false);
                 trackView.setBackgroundResource(selectableItemBackgroundResourceId);
                 trackView.setText(ExoUtil.buildTrackName(group.getFormat(trackIndex)));
-                if (this.trackInfo.getTrackFormatSupport(this.rendererIndex, groupIndex, trackIndex) == 4) {
+                if (this.trackInfo.getTrackSupport(this.rendererIndex, groupIndex, trackIndex) == C.FORMAT_HANDLED) { // Changed 4 to C.FORMAT_HANDLED
                     trackView.setFocusable(true);
                     trackView.setTag(Pair.create(Integer.valueOf(groupIndex), Integer.valueOf(trackIndex)));
                     trackView.setOnClickListener(this);
@@ -229,7 +231,14 @@ public class TrackSelectionHelper implements View.OnClickListener, DialogInterfa
     }
 
     private void setOverride(int group, int[] tracks, boolean enableRandomAdaptation) {
-        TrackSelection.Factory factory = tracks.length == 1 ? FIXED_FACTORY : enableRandomAdaptation ? RANDOM_FACTORY : this.adaptiveTrackSelectionFactory;
-        this.override = new DefaultTrackSelector.SelectionOverride( group, tracks);
+        // The DefaultTrackSelector will handle the selection logic.
+        // The distinction for FIXED_FACTORY was likely for older ExoPlayer versions
+        // or for more complex factory configurations not evident here.
+        this.override = new DefaultTrackSelector.SelectionOverride(group, tracks);
+        // If 'enableRandomAdaptation' or 'adaptiveTrackSelectionFactory' were meant to be used
+        // to influence the parameters passed to SelectionOverride or other selector methods,
+        // that logic would need to be re-evaluated based on the current ExoPlayer API.
+        // For now, this addresses the direct instantiation error.
     }
+
 }

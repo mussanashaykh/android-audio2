@@ -150,13 +150,11 @@ public class PlayerActivity extends BaseActivity implements View.OnClickListener
                 pauseRadio();
                 setUpFunctionShuffle();
                 setUpFunctionRepeat();
-                setButtonPlay();
+
                 mService.setListener(new PlayerListener() {
                     @Override
-                    public void onSeekChanged(int maxProgress, String lengthTime,
-                                              String currentTime, int progress) {
-                        PlayerActivity.this.seekChanged(maxProgress, lengthTime, currentTime,
-                                progress);
+                    public void onSeekChanged(int maxProgress, String lengthTime, String currentTime, int progress) {
+                        PlayerActivity.this.seekChanged(maxProgress, lengthTime, currentTime, progress);
                     }
 
                     @Override
@@ -165,14 +163,18 @@ public class PlayerActivity extends BaseActivity implements View.OnClickListener
                     }
 
                     @Override
-                    public void OnMusicPrepared() { }
+                    public void OnMusicPrepared() {
+                        runOnUiThread(() -> setButtonPlay()); // ✅ Explicitly sync icon on prep complete
+                    }
                 });
+
                 GlobalValue.currentMusicService = mService;
 
                 if (playmp3) playMusic();
                 if (GlobalValue.getCurrentSong() != null) {
                     setHeaderTitle(GlobalValue.getCurrentSong().getName());
                 }
+                setButtonPlay();
             }
 
             @Override public void onServiceDisconnected(ComponentName name) { }
@@ -579,13 +581,15 @@ public class PlayerActivity extends BaseActivity implements View.OnClickListener
     }
 
     public void setButtonPlay() {
-        if (btnPlay == null) return;
-        if (mService != null && mService.isPause()) {
-            btnPlay.setBackgroundResource(R.drawable.ic_play);
-        } else {
+        if (btnPlay == null || mService == null) return;
+
+        if (mService.isPlay()) {
             btnPlay.setBackgroundResource(R.drawable.ic_pause);
+        } else {
+            btnPlay.setBackgroundResource(R.drawable.ic_play);
         }
     }
+
 
     private void showMenuAction(View v) {
         PopupMenu popupMenu = new PopupMenu(this, v);
@@ -636,9 +640,10 @@ public class PlayerActivity extends BaseActivity implements View.OnClickListener
     private void onClickPlay() {
         if (mService != null) {
             mService.playOrPauseMusic();
+            setButtonPlay();
         }
-        // Button icon is updated via playStateReceiver from MusicService
     }
+
 
     private void onClickForward() {
         if (mService != null) mService.nextSongByOnClick();

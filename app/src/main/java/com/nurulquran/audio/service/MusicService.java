@@ -315,6 +315,7 @@ public class MusicService extends Service {
             lengthSong = mPlayer.getDuration();
             isPreparing = false;
             mPlayer.start();
+            isPause = false;
             if (listener != null) listener.OnMusicPrepared();
             if (!isUpdatingSeek) {
                 isUpdatingSeek = true;
@@ -322,6 +323,7 @@ public class MusicService extends Service {
             }
             notifyPlayState(true);
         });
+
     }
 
     public void startMusic(int index) {
@@ -356,14 +358,18 @@ public class MusicService extends Service {
             length = mPlayer.getCurrentPosition();
             mPlayer.pause();
             isUpdatingSeek = false;
-            notifyPlayState(false); // <— tell UI we’re paused
+            notifyPlayState(false);
         }
+
+        // Always update the notification to refresh the play/pause icon
+        showSmallNotification(GlobalValue.getCurrentSong(), createReceiverIntent(this, MainActivity.NOTIFICATION_ID));
+
+
         if (doCancelNotification) {
             cancelNotification();
-        } else {
-            showSmallNotification(GlobalValue.getCurrentSong(), createReceiverIntent(this, MainActivity.NOTIFICATION_ID));
         }
     }
+
 
     public void resumeMusic() {
         if (isPause) {
